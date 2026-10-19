@@ -32,7 +32,13 @@ jobs:
           git fetch --quiet --force --tags upstream '+refs/heads/*:refs/remotes/upstream/*'
 
           commits=$(git log --no-merges --format='- [`%h`](https://github.com/'"${UPSTREAM}"'/commit/%H) %s (%an, %as)' HEAD..upstream/master)
-          tags=$(git tag --no-merged HEAD --sort=-creatordate | sed 's|.*|- [&](https://github.com/'"${UPSTREAM}"'/releases/tag/&)|')
+          # Only tags newer than the newest merged one; old betas from abandoned
+          # branches would otherwise show up forever.
+          since=$(git log -1 --format=%ct "$(git describe --tags --abbrev=0 HEAD)")
+          tags=$(git for-each-ref --no-merged HEAD --sort=-creatordate \
+              --format='%(creatordate:unix) %(refname:short)' refs/tags \
+            | awk -v since="$since" '$1 > since {print $2}' \
+            | sed 's|.*|- [&](https://github.com/'"${UPSTREAM}"'/releases/tag/&)|')
           branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/upstream \
             | grep -vE '^upstream/(HEAD|master)$' \
             | while read -r ref; do
