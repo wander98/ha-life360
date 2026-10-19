@@ -1,0 +1,85 @@
+name: Watch upstream
+
+# Opens (or updates) an issue listing pnbruckner/ha-life360 commits and release tags
+# that are not merged into the custom branch yet, and closes it once they are.
+
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    name: Check for upstream changes
+    steps:
+      - name: 📥 Checkout the custom branch
+        uses: actions/checkout@v6
+        with:
+          ref: custom
+          fetch-depth: 0
+      - name: 🔍 Compare with upstream and update issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: Upstream changes to review
+          UPSTREAM: pnbruckner/ha-life360
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch --quiet --force --tags upstream '+refs/heads/*:refs/remotes/upstream/*'
+
+          commits=$(git log --no-merges --format='- [`%h`](https://github.com/'"${UPSTREAM}"'/commit/%H) %s (%an, %as)' HEAD..upstream/master)
+          tags=$(git tag --no-merged HEAD --sort=-creatordate | sed 's|.*|- [&](https://github.com/'"${UPSTREAM}"'/releases/tag/&)|')
+          branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/upstream \
+            | grep -vE '^upstream/(HEAD|master)$' \
+            | while read -r ref; do
+                n=$(git rev-list --count HEAD.."$ref")
+                [ "$n" -gt 0 ] && echo "- \`${ref#upstream/}\`: $n commit(s) not merged"
+              done || true)
+
+          issue=$(gh issue list --state open --label upstream --json number --jq '.[0].number // empty')
+
+          if [ -z "$commits$tags$branches" ]; then
+            echo "Up to date with upstream."
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "All upstream changes are merged into \`custom\`."
+            fi
+            exit 0
+          fi
+
+          base=$(git merge-base HEAD upstream/master)
+          {
+            echo "Upstream has changes that are not merged into \`custom\` yet."
+            echo
+            echo "[Compare upstream since last merge](https://github.com/${UPSTREAM}/compare/${base}...master)"
+            if [ -n "$commits" ]; then echo; echo "### Commits on master"; echo "$commits"; fi
+            if [ -n "$tags" ]; then echo; echo "### Releases / tags not merged"; echo "$tags"; fi
+            if [ -n "$branches" ]; then echo; echo "### Other upstream branches"; echo "$branches"; fi
+            echo
+            echo "### To merge"
+            echo '```sh'
+            echo "git fetch upstream --tags"
+            echo "git checkout custom"
+            echo "git merge upstream/master   # or a tag, e.g. git merge <tag>"
+            echo "git push origin custom"
+            echo '```'
+            echo "Then tag a release so HACS offers the update. This issue closes on the next run once everything is merged."
+            echo
+            echo "_Last checked: $(date -u '+%Y-%m-%d %H:%M UTC')_"
+          } > body.md
+
+          if [ -n "$issue" ]; then
+            # Body edits don't notify anyone, so comment when the list changes.
+            old=$(gh issue view "$issue" --json body --jq .body | grep '^- ' || true)
+            new=$(grep '^- ' body.md || true)
+            gh issue edit "$issue" --body-file body.md
+            if [ "$old" != "$new" ]; then
+              gh issue comment "$issue" --body "New upstream changes since the last check. See the updated list above."
+            fi
+          else
+            gh label create upstream --color 0e8a16 --description "Upstream changes to review" --force
+            gh issue create --title "$TITLE" --label upstream --body-file body.md
+          fi

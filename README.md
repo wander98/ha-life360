@@ -1,5 +1,13 @@
 # <img src="https://brands.home-assistant.io/life360/icon.png" alt="Life360" width="50" height="50"/> Life360
 
+> **This is a personal fork of [pnbruckner/ha-life360](https://github.com/pnbruckner/ha-life360)**, maintained on the `custom` branch.
+> All credit for the integration goes to the upstream author. Changes in this fork:
+> - Configurable polling interval (Options → Basic Options, default 15 s instead of a fixed 5 s)
+> - Account rate-limit (HTTP 429) status on the account binary sensor (`status`, `rate_limited_until`, `last_success`, `last_error`), and `account_status` / `rate_limited_until` on trackers
+> - All requests for an account pause while it is rate limited, with one log warning when a limit starts and one when it ends
+>
+> For the original integration, use the upstream repository.
+
 A [Home Assistant](https://www.home-assistant.io/) integration for Life360.
 Creates Device Tracker (`device_tracker`) entities to show where Life360 Members are located.
 
