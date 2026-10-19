@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import partial
 from itertools import chain, repeat
 import re
@@ -13,9 +14,9 @@ from custom_components.life360.config_flow import Life360ConfigFlow
 from custom_components.life360.const import (
     ATTR_REASON,
     ATTRIBUTION,
+    DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     MAX_LTD_LOGIN_ERROR_RETRIES,
-    UPDATE_INTERVAL,
 )
 from custom_components.life360.helpers import AccountID, ConfigOptions, MemberID
 from life360 import LoginError
@@ -647,7 +648,7 @@ async def test_login_error(
     assert state.state == STATE_UNKNOWN
 
     # Advance "time" so Member coordinator will update.
-    now = dt_now_real() + UPDATE_INTERVAL
+    now = dt_now_real() + timedelta(seconds=DEFAULT_UPDATE_INTERVAL)
     dt_now_mock.return_value = now
     async_fire_time_changed(hass, now)
     await hass.async_block_till_done()
