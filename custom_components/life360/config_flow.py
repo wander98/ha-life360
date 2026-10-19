@@ -22,6 +22,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     UnitOfLength,
     UnitOfSpeed,
+    UnitOfTime,
 )
 from homeassistant.core import callback
 from homeassistant.helpers.issue_registry import async_delete_issue
@@ -48,8 +49,11 @@ from .const import (
     CONF_MAX_GPS_ACCURACY,
     CONF_SHOW_DRIVING,
     CONF_TOKEN_TYPE,
+    CONF_UPDATE_INTERVAL,
     CONF_VERBOSITY,
     DOMAIN,
+    MAX_UPDATE_INTERVAL,
+    MIN_UPDATE_INTERVAL,
 )
 from .helpers import Account, AccountID, ConfigOptions, get_session
 
@@ -119,6 +123,7 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
             )
             self._opts.driving = cast(bool, user_input[CONF_SHOW_DRIVING])
             self._opts.verbosity = int(user_input[CONF_VERBOSITY])
+            self._opts.update_interval = int(user_input[CONF_UPDATE_INTERVAL])
 
             return await self.async_step_acct_menu()
 
@@ -141,6 +146,15 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
                     )
                 ),
                 vol.Required(CONF_SHOW_DRIVING): BooleanSelector(),
+                vol.Required(CONF_UPDATE_INTERVAL): NumberSelector(
+                    NumberSelectorConfig(
+                        min=MIN_UPDATE_INTERVAL,
+                        max=MAX_UPDATE_INTERVAL,
+                        step=1,
+                        unit_of_measurement=UnitOfTime.SECONDS,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
                 vol.Required(CONF_VERBOSITY): SelectSelector(
                     SelectSelectorConfig(
                         options=[str(i) for i in range(5)],
@@ -161,6 +175,7 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
             data_schema,
             {
                 CONF_SHOW_DRIVING: self._opts.driving,
+                CONF_UPDATE_INTERVAL: self._opts.update_interval,
                 CONF_VERBOSITY: str(self._opts.verbosity),
             },
         )

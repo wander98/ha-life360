@@ -7,6 +7,7 @@ from collections.abc import Callable, Coroutine, Iterable
 from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum, auto
 from functools import partial
 import logging
@@ -31,8 +32,12 @@ from .const import (
     LOGIN_ERROR_RETRY_DELAY,
     LTD_LOGIN_ERROR_RETRY_DELAY,
     MAX_LTD_LOGIN_ERROR_RETRIES,
+    RATE_LIMIT_STATUS_THRESHOLD,
     SIGNAL_ACCT_STATUS,
-    UPDATE_INTERVAL,
+    STATUS_LOGIN_ERROR,
+    STATUS_OFFLINE,
+    STATUS_ONLINE,
+    STATUS_RATE_LIMITED,
 )
 from .helpers import (
     AccountID,
@@ -62,6 +67,9 @@ class AccountData:
     api: helpers.Life360
     failed: asyncio.Event
     online: bool = True
+    rate_limited_until: datetime | None = None
+    last_success: datetime | None = None
+    last_error: str | None = None
 
 
 class LoginRateLimitErrResp(Enum):
@@ -121,7 +129,65 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
         # binary sensor will be updated accordingly.
         if aid not in self._acct_data:
             return True
-        return self._acct_data[aid].online
+        return self.acct_status(aid) == STATUS_ONLINE
+
+    def acct_status(self, aid: AccountID) -> str:
+        """Return account status."""
+        if not (acct := self._acct_data.get(aid)):
+            return STATUS_ONLINE
+        if acct.failed.is_set():
+            return STATUS_LOGIN_ERROR
+        if acct.rate_limited_until is not None:
+            return STATUS_RATE_LIMITED
+        if not acct.online:
+            return STATUS_OFFLINE
+        return STATUS_ONLINE
+
+    def acct_details(self, aid: AccountID) -> dict[str, Any]:
+        """Return account status details for entity attributes."""
+        acct = self._acct_data.get(aid)
+        return {
+            "status": self.acct_status(aid),
+            "rate_limited_until": (
+                dt_util.as_local(acct.rate_limited_until)
+                if acct and acct.rate_limited_until
+                else None
+            ),
+            "last_success": (
+                dt_util.as_local(acct.last_success)
+                if acct and acct.last_success
+                else None
+            ),
+            "last_error": acct.last_error if acct else None,
+            "update_interval": self._options.update_interval,
+        }
+
+    def member_acct_status(self, mid: MemberID) -> tuple[str, datetime | None]:
+        """Return best status of accounts used to get Member's data.
+
+        Also returns when the rate limit is expected to end, if all of those
+        accounts are rate limited.
+        """
+        aids = {
+            aid
+            for cid in self.mem_circles.get(mid, set())
+            for aid in self.data.circles[cid].aids
+            if aid in self._acct_data
+        }
+        statuses = {aid: self.acct_status(aid) for aid in aids}
+        if not statuses or STATUS_ONLINE in statuses.values():
+            return STATUS_ONLINE, None
+        if all(status == STATUS_RATE_LIMITED for status in statuses.values()):
+            until = min(
+                cast(datetime, self._acct_data[aid].rate_limited_until) for aid in aids
+            )
+            return STATUS_RATE_LIMITED, dt_util.as_local(until)
+        return next(iter(statuses.values())), None
+
+    @property
+    def update_interval_td(self) -> timedelta:
+        """Return Member polling interval."""
+        return timedelta(seconds=self._options.update_interval)
 
     @cached_property
     def mem_circles(self) -> dict[MemberID, set[CircleID]]:
@@ -456,6 +522,9 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
 
         try:
             while True:
+                if delay is None and (wait := self._rate_limit_wait(aid)):
+                    delay = wait
+                    delay_reason = "account rate limited"
                 if delay is not None:
                     if (
                         not warned
@@ -513,11 +582,11 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
                     raise
 
                 except NotFound:
-                    self._set_acct_exc(aid)
+                    self._request_succeeded(aid)
                     return RequestError.NOT_FOUND
 
                 except NotModified:
-                    self._set_acct_exc(aid)
+                    self._request_succeeded(aid)
                     return RequestError.NOT_MODIFIED
 
                 except LoginError as exc:
@@ -546,6 +615,7 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
                     if isinstance(exc, RateLimited):
                         if lrle_resp is not LoginRateLimitErrResp.SILENT:
                             self._set_acct_exc(aid)
+                            self._set_rate_limited(aid, msg, exc)
                             delay = ceil(exc.retry_after or 0) + 10
                             delay_reason = "rate limited"
                             continue
@@ -562,7 +632,7 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
                         raise asyncio.CancelledError
                     if failed.is_set():
                         return RequestError.NO_DATA
-                    self._set_acct_exc(aid)
+                    self._request_succeeded(aid)
                     return result
 
                 finally:
@@ -590,6 +660,7 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
         """Set account exception status and signal clients if it has changed."""
         acct = self._acct_data[aid]
         if exc is not None:
+            acct.last_error = f"{msg}: {exc}"
             level = logging.ERROR if not online and acct.online else logging.DEBUG
             _LOGGER.log(level, "%s: %s: %s", aid, msg, exc)
 
@@ -600,6 +671,49 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
             _LOGGER.error("%s: Fetching data recovered", aid)
         acct.online = online
         async_dispatcher_send(self.hass, SIGNAL_ACCT_STATUS, aid)
+
+    def _rate_limit_wait(self, aid: AccountID) -> int | None:
+        """Return seconds to wait before making a request, if rate limited."""
+        if (until := self._acct_data[aid].rate_limited_until) is None:
+            return None
+        if (wait := ceil((until - dt_util.utcnow()).total_seconds())) <= 0:
+            return None
+        return wait + 1
+
+    def _set_rate_limited(self, aid: AccountID, msg: str, exc: RateLimited) -> None:
+        """Record that account is rate limited and signal clients if needed."""
+        acct = self._acct_data[aid]
+        retry_after = ceil(exc.retry_after or 0)
+        acct.last_error = f"{msg}: 429 Too Many Requests (retry_after {retry_after} s)"
+        if retry_after < RATE_LIMIT_STATUS_THRESHOLD:
+            _LOGGER.debug("%s: short rate limit %s: %i s", aid, msg, retry_after)
+            return
+        until = dt_util.utcnow() + timedelta(seconds=retry_after)
+        if acct.rate_limited_until is None:
+            _LOGGER.warning(
+                "%s: Rate limited by Life360 (HTTP 429) %s; pausing requests for "
+                "this account for %s, until %s",
+                aid,
+                msg,
+                timedelta(seconds=retry_after),
+                dt_util.as_local(until).isoformat(timespec="seconds"),
+            )
+        elif until <= acct.rate_limited_until:
+            return
+        acct.rate_limited_until = until
+        async_dispatcher_send(self.hass, SIGNAL_ACCT_STATUS, aid)
+
+    def _request_succeeded(self, aid: AccountID) -> None:
+        """Record a successful request."""
+        acct = self._acct_data[aid]
+        acct.last_success = dt_util.utcnow()
+        if acct.rate_limited_until is not None:
+            _LOGGER.warning(
+                "%s: Life360 rate limit lifted; requests are succeeding again", aid
+            )
+            acct.rate_limited_until = None
+            async_dispatcher_send(self.hass, SIGNAL_ACCT_STATUS, aid)
+        self._set_acct_exc(aid)
 
     def _handle_login_error(self, aid: AccountID) -> None:
         """Handle account login error."""
@@ -631,6 +745,16 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
 
         old_options = self._options
         self._options = new_options
+        if old_options.update_interval != new_options.update_interval:
+            _LOGGER.info(
+                "Polling interval changed from %i s to %i s",
+                old_options.update_interval,
+                new_options.update_interval,
+            )
+            for mem_crd in self.config_entry.runtime_data.mem_coordinator.values():
+                mem_crd.update_interval = self.update_interval_td
+            for aid in self._acct_data:
+                async_dispatcher_send(self.hass, SIGNAL_ACCT_STATUS, aid)
         # Get previously and currently enabled accounts.
         old_accts = {
             aid: acct for aid, acct in old_options.accounts.items() if acct.enabled
@@ -748,7 +872,7 @@ class MemberDataUpdateCoordinator(DataUpdateCoordinator[MemberData]):
             _LOGGER,
             config_entry=entry,
             name=mem_details.name,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=entry.runtime_data.coordinator.update_interval_td,
             always_update=False,
         )
         self.data = MemberData(mem_details)

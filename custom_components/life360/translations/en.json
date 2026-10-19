@@ -22,7 +22,11 @@
                     "max_gps_accuracy": "GPS accuracy radius limit",
                     "driving_speed": "Driving speed threshold",
                     "driving": "Show driving as state",
-                    "verbosity": "DEBUG message verbosity"
+                    "verbosity": "DEBUG message verbosity",
+                    "update_interval": "Polling interval"
+                },
+                "data_description": {
+                    "update_interval": "How often each member is fetched from each Circle they are in. Every member/Circle pair is one request per interval, so short intervals with several Circles can get the account rate limited by Life360 (HTTP 429). Default is 15 seconds."
                 }
             },
             "acct_menu": {
@@ -85,7 +89,30 @@
         },
         "binary_sensor": {
             "online": {
-                "name": "Life360 online ({acct_id})"
+                "name": "Life360 online ({acct_id})",
+                "state_attributes": {
+                    "status": {
+                        "name": "Status",
+                        "state": {
+                            "online": "Online",
+                            "offline": "Offline",
+                            "rate_limited": "Rate limited",
+                            "login_error": "Login error"
+                        }
+                    },
+                    "rate_limited_until": {
+                        "name": "Rate limited until"
+                    },
+                    "last_success": {
+                        "name": "Last successful request"
+                    },
+                    "last_error": {
+                        "name": "Last error"
+                    },
+                    "update_interval": {
+                        "name": "Polling interval"
+                    }
+                }
             }
         }
     },
@@ -112,7 +139,11 @@
                     "max_gps_accuracy": "GPS accuracy radius limit",
                     "driving_speed": "Driving speed threshold",
                     "driving": "Show driving as state",
-                    "verbosity": "DEBUG message verbosity"
+                    "verbosity": "DEBUG message verbosity",
+                    "update_interval": "Polling interval"
+                },
+                "data_description": {
+                    "update_interval": "How often each member is fetched from each Circle they are in. Every member/Circle pair is one request per interval, so short intervals with several Circles can get the account rate limited by Life360 (HTTP 429). Default is 15 seconds."
                 }
             },
             "acct_menu": {

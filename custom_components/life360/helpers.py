@@ -41,7 +41,9 @@ from .const import (
     CONF_DRIVING_SPEED,
     CONF_MAX_GPS_ACCURACY,
     CONF_SHOW_DRIVING,
+    CONF_UPDATE_INTERVAL,
     CONF_VERBOSITY,
+    DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     SPEED_DIGITS,
     SPEED_FACTOR_MPH,
@@ -121,6 +123,7 @@ class ConfigOptions:
     driving_speed: float | None = None
     max_gps_accuracy: float | None = None
     verbosity: int = 0
+    update_interval: int = DEFAULT_UPDATE_INTERVAL
 
     def as_dict(self) -> dict[str, Any]:
         """Return a dict representation of the data."""
@@ -139,6 +142,8 @@ class ConfigOptions:
             data[CONF_DRIVING_SPEED],
             data[CONF_MAX_GPS_ACCURACY],
             data[CONF_VERBOSITY],
+            # Not present in entries created before polling interval was configurable.
+            int(data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
         )
 
 

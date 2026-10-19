@@ -30,19 +30,23 @@ from homeassistant.util.unit_conversion import SpeedConverter
 from homeassistant.util.unit_system import METRIC_SYSTEM
 
 from .const import (
+    ATTR_ACCOUNT_STATUS,
     ATTR_ADDRESS,
     ATTR_AT_LOC_SINCE,
     ATTR_DRIVING,
     ATTR_IGNORED_UPDATE_REASONS,
     ATTR_LAST_SEEN,
     ATTR_PLACE,
+    ATTR_RATE_LIMITED_UNTIL,
     ATTR_REASON,
     ATTR_SPEED,
     ATTR_WIFI_ON,
     ATTRIBUTION,
+    SIGNAL_ACCT_STATUS,
     SIGNAL_MEMBERS_CHANGED,
     SIGNAL_UPDATE_LOCATION,
     STATE_DRIVING,
+    STATUS_ONLINE,
 )
 from .coordinator import L360ConfigEntry, MemberDataUpdateCoordinator
 from .helpers import ConfigOptions, MemberData, MemberID, NoLocReason
@@ -283,7 +287,7 @@ class Life360DeviceTracker(
             }
             if self._ignored_update_reasons:
                 attrs[ATTR_IGNORED_UPDATE_REASONS] = self._ignored_update_reasons
-            return attrs
+            return attrs | self._acct_attrs()
 
         reason = {
             NoLocReason.NOT_FOUND: "Member no longer in any known Circle",
@@ -295,7 +299,15 @@ class Life360DeviceTracker(
             self._warned_loc_unknown = True
             _LOGGER.warning("Location data for %s is missing: %s", self, reason)
 
-        return {ATTR_REASON: reason}
+        return {ATTR_REASON: reason} | self._acct_attrs()
+
+    def _acct_attrs(self) -> dict[str, Any]:
+        """Return account status attributes, if account(s) are not online."""
+        circles_crd = self.coordinator.config_entry.runtime_data.coordinator
+        status, until = circles_crd.member_acct_status(self._mid)
+        if status == STATUS_ONLINE:
+            return {}
+        return {ATTR_ACCOUNT_STATUS: status, ATTR_RATE_LIMITED_UNTIL: until}
 
     @override
     @property
@@ -307,6 +319,16 @@ class Life360DeviceTracker(
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
+
+        @callback
+        def acct_status_changed(_: Any) -> None:
+            """Update attributes when account status changes."""
+            if self.hass and self.enabled:
+                self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ACCT_STATUS, acct_status_changed)
+        )
 
         # Restore state if possible.
         if not (last_extra_data := await self.async_get_last_extra_data()):

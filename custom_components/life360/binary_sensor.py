@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from functools import partial
 import logging
-from typing import cast, override
+from collections.abc import Mapping
+from typing import Any, cast, override
 
 from propcache.api import cached_property
 
@@ -79,6 +80,7 @@ class Life360BinarySensor(BinarySensorEntity):
             .enabled
         )
         self._online = partial(coordinator.acct_online, aid)
+        self._details = partial(coordinator.acct_details, aid)
 
         self.async_on_remove(
             coordinator.config_entry.add_update_listener(
@@ -98,6 +100,14 @@ class Life360BinarySensor(BinarySensorEntity):
         if not self._enabled:
             return False
         return self._online()
+
+    @override
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return account status details."""
+        if not self._enabled:
+            return None
+        return self._details()
 
     @override
     async def async_added_to_hass(self) -> None:
