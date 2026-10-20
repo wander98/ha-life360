@@ -5,6 +5,7 @@
 > - Configurable polling interval (Options → Basic Options, default 15 s instead of a fixed 5 s)
 > - Account rate-limit (HTTP 429) status on the account binary sensor (`status`, `rate_limited_until`, `last_success` (refreshed at most every 5 minutes), `last_error`), and `account_status` / `rate_limited_until` on trackers
 > - All requests for an account pause while it is rate limited, with one log warning when a limit starts and one when it ends
+> - Per-person `sensor.life360_<name>_battery` (%) and `binary_sensor.life360_<name>_charging` entities, with history and long-term statistics
 >
 > For the original integration, use the upstream repository.
 

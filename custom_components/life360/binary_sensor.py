@@ -20,6 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTRIBUTION, SIGNAL_ACCT_STATUS
 from .coordinator import CirclesMembersDataUpdateCoordinator, L360ConfigEntry
+from .entity import Life360MemberEntity, async_setup_member_entities
 from .helpers import AccountID, ConfigOptions
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +58,10 @@ async def async_setup_entry(
 
     await process_config(hass, entry)
     entry.async_on_unload(entry.add_update_listener(process_config))
+
+    await async_setup_member_entities(
+        hass, entry, async_add_entities, Life360ChargingBinarySensor
+    )
 
 
 class Life360BinarySensor(BinarySensorEntity):
@@ -136,3 +141,18 @@ class Life360BinarySensor(BinarySensorEntity):
 
         self._enabled = not self._enabled
         self.async_write_ha_state()
+
+
+class Life360ChargingBinarySensor(Life360MemberEntity, BinarySensorEntity):
+    """Life360 Member battery charging status."""
+
+    _attr_device_class = BinarySensorDeviceClass.BATTERY_CHARGING
+    _name_suffix = "Charging"
+
+    @override
+    @property
+    def is_on(self) -> bool | None:
+        """Return if charging, if location data is available."""
+        if not (loc := self.coordinator.data.loc):
+            return None
+        return loc.battery_charging
