@@ -1,5 +1,7 @@
 """Constants for Life360 integration."""
 
+from datetime import timedelta
+
 from aiohttp import ClientTimeout
 
 DOMAIN = "life360"
@@ -17,6 +19,8 @@ MIN_UPDATE_INTERVAL = 5
 MAX_UPDATE_INTERVAL = 600
 # Rate limits shorter than this are retried quietly and do not change account status.
 RATE_LIMIT_STATUS_THRESHOLD = 60
+# Refresh the account sensor's last_success attribute at most this often.
+LAST_SUCCESS_REFRESH = timedelta(minutes=5)
 
 ATTR_ADDRESS = "address"
 ATTR_AT_LOC_SINCE = "at_loc_since"

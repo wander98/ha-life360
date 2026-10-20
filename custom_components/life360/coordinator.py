@@ -29,6 +29,7 @@ from . import helpers
 from .const import (
     COMM_MAX_RETRIES,
     DOMAIN,
+    LAST_SUCCESS_REFRESH,
     LOGIN_ERROR_RETRY_DELAY,
     LTD_LOGIN_ERROR_RETRY_DELAY,
     MAX_LTD_LOGIN_ERROR_RETRIES,
@@ -69,6 +70,7 @@ class AccountData:
     online: bool = True
     rate_limited_until: datetime | None = None
     last_success: datetime | None = None
+    last_success_sent: datetime | None = None
     last_error: str | None = None
 
 
@@ -706,12 +708,21 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
     def _request_succeeded(self, aid: AccountID) -> None:
         """Record a successful request."""
         acct = self._acct_data[aid]
-        acct.last_success = dt_util.utcnow()
+        acct.last_success = now = dt_util.utcnow()
         if acct.rate_limited_until is not None:
             _LOGGER.warning(
                 "%s: Life360 rate limit lifted; requests are succeeding again", aid
             )
             acct.rate_limited_until = None
+            refresh = True
+        else:
+            # Throttled, since writing state on every request would flood the recorder.
+            refresh = (
+                acct.last_success_sent is None
+                or now - acct.last_success_sent >= LAST_SUCCESS_REFRESH
+            )
+        if refresh:
+            acct.last_success_sent = now
             async_dispatcher_send(self.hass, SIGNAL_ACCT_STATUS, aid)
         self._set_acct_exc(aid)
 
