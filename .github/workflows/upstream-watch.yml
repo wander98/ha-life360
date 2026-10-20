@@ -25,6 +25,8 @@ jobs:
       - name: 🔍 Compare with upstream and update issue
         env:
           GH_TOKEN: ${{ github.token }}
+          # The checkout gains an "upstream" remote, which gh would otherwise target.
+          GH_REPO: ${{ github.repository }}
           TITLE: Upstream changes to review
           UPSTREAM: pnbruckner/ha-life360
         run: |
