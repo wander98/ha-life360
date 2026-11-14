@@ -1,4 +1,4 @@
-"""Life360 per-Member entities (battery and charging)."""
+"""Life360 per-Member entities (charging)."""
 
 from __future__ import annotations
 

@@ -91,6 +91,7 @@ class Life360BatLvlSensor(Life360Sensor):
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfRatio.PERCENTAGE
+    _attr_suggested_display_precision = 0
 
     @override
     def _native_value(self, data: MemberData) -> Any | None:
