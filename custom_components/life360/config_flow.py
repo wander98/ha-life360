@@ -1,11 +1,9 @@
 """Config flow for Life360 integration."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Any, cast, override
 
-from life360 import CommError, Life360Error, LoginError
+from life360 import CommError, Life360Error, LoginError, RateLimited, Unauthorized
 from propcache.api import cached_property
 import voluptuous as vol
 
@@ -264,8 +262,10 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
                     await self._verify_and_save_acct()
                 except vol.EmailInvalid:
                     errors[CONF_USERNAME] = "invalid_email"
-                except LoginError:
+                except (LoginError, Unauthorized):
                     errors["base"] = "invalid_auth"
+                except RateLimited:
+                    errors["base"] = "rate_limited"
                 except CommError:
                     errors["base"] = "cannot_connect"
                 except Life360Error:
@@ -327,8 +327,10 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
                 self._enabled = cast(bool, user_input[CONF_ENABLED])
                 try:
                     await self._verify_and_save_acct()
-                except LoginError:
+                except (LoginError, Unauthorized):
                     errors["base"] = "invalid_auth"
+                except RateLimited:
+                    errors["base"] = "rate_limited"
                 except CommError:
                     errors["base"] = "cannot_connect"
                 except Life360Error:
@@ -339,7 +341,9 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_USERNAME): TextSelector(),
-                vol.Required(CONF_AUTHORIZATION): TextSelector(),
+                vol.Required(CONF_AUTHORIZATION): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
                 vol.Required(CONF_TOKEN_TYPE): TextSelector(),
                 vol.Required(CONF_ENABLED): BooleanSelector(),
             }
@@ -370,7 +374,7 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
             errors=errors,
             description_placeholders={
                 "action": "Modify" if self._aid else "Add",
-                "life360_login_url": "https://app.life360.com/login",
+                "life360_login_url": "https://life360.com/login",
             },
             last_step=False,
         )
@@ -436,6 +440,7 @@ class Life360Flow(ConfigEntryBaseFlow, ABC):
                 else:
                     assert self._authorization is not None
                     authorization = self._authorization
+                    await api.get_me()
             finally:
                 session.detach()
         elif self._authorization is not None:
@@ -463,15 +468,15 @@ class Life360ConfigFlow(ConfigFlow, Life360Flow, domain=DOMAIN):
 
     VERSION = 2
 
-    @override
     @cached_property
+    @override
     def _opts(self) -> ConfigOptions:
         """Return mutable options class."""
         return ConfigOptions()
 
-    @override
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(config_entry: ConfigEntry) -> Life360OptionsFlow:
         """Get the options flow for this handler."""
         # Default first step is init.
@@ -497,8 +502,8 @@ class Life360ConfigFlow(ConfigFlow, Life360Flow, domain=DOMAIN):
 class Life360OptionsFlow(OptionsFlow, Life360Flow):
     """Life360 integration options flow."""
 
-    @override
     @cached_property
+    @override
     def _opts(self) -> ConfigOptions:
         """Return mutable options class."""
         return ConfigOptions.from_dict(self.config_entry.options)

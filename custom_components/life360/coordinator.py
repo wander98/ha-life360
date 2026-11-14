@@ -1,7 +1,5 @@
 """DataUpdateCoordinator for the Life360 integration."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Coroutine, Iterable
 from contextlib import suppress
@@ -304,8 +302,8 @@ class CirclesMembersDataUpdateCoordinator(DataUpdateCoordinator[CirclesMembersDa
         finally:
             self._fg_update_task = None
 
-    @override
     @callback
+    @override
     def _async_refresh_finished(self) -> None:
         """Handle when a refresh has finished."""
         self._clear_mem_circles()

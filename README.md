@@ -1,4 +1,4 @@
-# <img src="https://brands.home-assistant.io/life360/icon.png" alt="Life360" width="50" height="50"/> Life360
+# <img src="custom_components/life360/brand/icon.png" alt="Life360" width="50" height="50"/> Life360
 
 > **This is a personal fork of [pnbruckner/ha-life360](https://github.com/pnbruckner/ha-life360)**, maintained on the `custom` branch.
 > All credit for the integration goes to the upstream author. Changes in this fork:
@@ -174,7 +174,7 @@ You can put whatever you want in the "Account identifier" box.
 
 ## Versions
 
-This custom integration supports HomeAssistant versions 2025.11.3 or newer.
+This custom integration supports HomeAssistant versions 2026.7 or newer.
 
 ## Services
 

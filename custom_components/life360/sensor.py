@@ -38,7 +38,7 @@ class Life360BatterySensor(Life360MemberEntity, SensorEntity):
 
     @override
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> float | None:
         """Return battery level, if location data is available."""
         if not (loc := self.coordinator.data.loc):
             return None
