@@ -93,9 +93,9 @@ jobs:
         # 0.13.375 -> HA 2026.10.4
         include:
           - hass-test-cc-version: "0.13.348"
-            python-version: "3.14.5"
+            python-version: "3.14"
           - hass-test-cc-version: "0.13.375"
-            python-version: "3.14.5"
+            python-version: "3.14"
     steps:
       - name: 📥 Checkout the repository
         uses: actions/checkout@v6
