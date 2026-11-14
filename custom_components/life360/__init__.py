@@ -15,7 +15,7 @@ import voluptuous as vol
 
 from homeassistant.const import CONF_ENTITY_ID, ENTITY_MATCH_ALL, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 
@@ -78,8 +78,47 @@ async def async_migrate_entry(_: HomeAssistant, entry: L360ConfigEntry) -> bool:
     return False
 
 
+async def async_migrate_battery_unique_ids(
+    hass: HomeAssistant, entry: L360ConfigEntry
+) -> None:
+    """Rename fork-era "<mid>_battery" sensor unique IDs to upstream "<mid>-bat_lvl".
+
+    Keeps existing entity IDs and history. Idempotent; skips if target exists.
+    """
+    ent_reg = er.async_get(hass)
+    existing = {
+        reg_ent.unique_id
+        for reg_ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+        if reg_ent.domain == "sensor"
+    }
+
+    @callback
+    def migrate(reg_ent: er.RegistryEntry) -> dict[str, str] | None:
+        """Return unique ID update for old-style battery sensors."""
+        if (
+            reg_ent.domain != "sensor"
+            or reg_ent.platform != DOMAIN
+            or not reg_ent.unique_id.endswith("_battery")
+        ):
+            return None
+        new_uid = f"{reg_ent.unique_id.removesuffix('_battery')}-bat_lvl"
+        if new_uid in existing:
+            _LOGGER.warning(
+                "Not migrating %s: unique ID %s already exists",
+                reg_ent.entity_id,
+                new_uid,
+            )
+            return None
+        existing.add(new_uid)
+        return {"new_unique_id": new_uid}
+
+    await er.async_migrate_entries(hass, entry.entry_id, migrate)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: L360ConfigEntry) -> bool:
     """Set up config entry."""
+    await async_migrate_battery_unique_ids(hass, entry)
+
     store = Life360Store(hass)
     await store.load()
 

@@ -735,3 +735,110 @@ async def test_remove_entry(
     # Check that config entry & storage are gone.
     assert not hass.config_entries.async_entries(DOMAIN)
     assert DOMAIN not in hass_storage
+
+
+@pytest.mark.parametrize(
+    "MockLife360",
+    [
+        {
+            "aid1": {
+                "get_circles": repeat([cir1]),
+                "get_circle_members": repeat([mem1]),
+                "get_circle_member": partial(
+                    get_circle_member,
+                    {cir1["id"]: {mem1["id"]: mem1}},  # type: ignore[dict-item]
+                ),
+            },
+        },
+    ],
+    indirect=["MockLife360"],
+)
+async def test_battery_unique_id_migration(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry
+) -> None:
+    """Test fork-era "<mid>_battery" sensors migrate to "<mid>-bat_lvl"."""
+    mid = cast(str, mem1["id"])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=Life360ConfigFlow.VERSION,
+        options=cfg_options(1, verbosity=3),
+    )
+    entry.add_to_hass(hass)
+    old_entity_id = "sensor.life360_x_battery"
+    reg_ent = entity_registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{mid}_battery",
+        suggested_object_id="life360_x_battery",
+        config_entry=entry,
+    )
+    assert reg_ent.entity_id == old_entity_id
+
+    def battery_entries() -> list[er.RegistryEntry]:
+        return [
+            e
+            for e in er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+            if e.domain == "sensor"
+        ]
+
+    for _ in range(2):  # Second pass proves idempotency.
+        with assert_setup_component(0, DOMAIN):
+            assert await async_setup_component(hass, DOMAIN, {})
+            await hass.async_block_till_done()
+            await asyncio.sleep(0.1)
+
+        entries = battery_entries()
+        assert len(entries) == 1
+        assert entries[0].entity_id == old_entity_id
+        assert entries[0].unique_id == f"{mid}-bat_lvl"
+        assert entity_registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{mid}_battery"
+        ) is None
+        assert hass.states.get(old_entity_id)
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+@pytest.mark.parametrize(
+    "MockLife360",
+    [
+        {
+            "aid1": {
+                "get_circles": repeat([cir1]),
+                "get_circle_members": repeat([mem1]),
+                "get_circle_member": partial(
+                    get_circle_member,
+                    {cir1["id"]: {mem1["id"]: mem1}},  # type: ignore[dict-item]
+                ),
+            },
+        },
+    ],
+    indirect=["MockLife360"],
+)
+async def test_battery_migration_skips_if_target_exists(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test migration is skipped with a warning if the new unique ID exists."""
+    mid = cast(str, mem1["id"])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=Life360ConfigFlow.VERSION,
+        options=cfg_options(1, verbosity=3),
+    )
+    entry.add_to_hass(hass)
+    for uid, oid in ((f"{mid}_battery", "old"), (f"{mid}-bat_lvl", "new")):
+        entity_registry.async_get_or_create(
+            "sensor", DOMAIN, uid, suggested_object_id=oid, config_entry=entry
+        )
+
+    with assert_setup_component(0, DOMAIN):
+        assert await async_setup_component(hass, DOMAIN, {})
+        await hass.async_block_till_done()
+        await asyncio.sleep(0.1)
+
+    assert entity_registry.async_get("sensor.old").unique_id == f"{mid}_battery"
+    assert entity_registry.async_get("sensor.new").unique_id == f"{mid}-bat_lvl"
+    assert "already exists" in caplog.text
